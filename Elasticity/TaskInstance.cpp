@@ -68,7 +68,7 @@ void TaskInstance::pollTasks() {
   }
 
   while (keepGoing_) {
-    int newMsgPos = simgrid::s4u::Comm::wait_any(&commV);
+    int newMsgPos = simgrid::s4u::Comm::wait_any(commV);
     TaskDescription* taskRequest = tasksV[newMsgPos];
     taskRequest->instArrival = simgrid::s4u::Engine::get_clock();
     commV.erase(commV.begin()+newMsgPos);
@@ -88,7 +88,7 @@ void TaskInstance::pollEndOfTaskExec() {
   while (keepGoing_) {
     sem_pollExec_->acquire();
 
-    int index = simgrid::s4u::Exec::wait_any(&pending_execs);
+    int index = simgrid::s4u::Exec::wait_any(pending_execs);
     // finished one exec, call output function and allow for a new execution
     TaskDescription* td = execMap_.find(pending_execs.at(index))->second;
     td->endExec = simgrid::s4u::Engine::get_clock();
@@ -104,13 +104,16 @@ void TaskInstance::pollEndOfTaskExec() {
             {{"endExec", simgrid::s4u::Engine::get_instance()->get_clock()}});
 #endif
 
+    td->end_span();
+    
     // remove execPtr from the vector since it finished
     simgrid::s4u::ExecPtr ep = pending_execs.at(index);
     pending_execs.erase(pending_execs.begin()+index);
 
     XBT_DEBUG("End of execution for %p, call output function", td);
-    simgrid::s4u::ActorPtr out = simgrid::s4u::Actor::create(
-      mbName_+"outputf"+boost::uuids::to_string(uuidGen_()), simgrid::s4u::Host::current(), [&]{outputFunction_(td);});
+    // simgrid::s4u::ActorPtr out = simgrid::s4u::Actor::create(
+    //   mbName_+"outputf"+boost::uuids::to_string(uuidGen_()), simgrid::s4u::Host::current(), [&]{outputFunction_(td);});
+    outputFunction_(td);
     if (keepGoing_)n_empty_->release();
     }
 }
@@ -185,6 +188,8 @@ void TaskInstance::run() {
         // this_actor::exec_async(realToBeExecuted);
         execP->set_bound(boundValue);
         execP->start();
+
+        td->start_span(etm_->getServiceName());
 
         // append the execPTr to the exec vector of executing requests,
         // it will be handled in the endExec polling actor once finished

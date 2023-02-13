@@ -4,7 +4,6 @@
 #include <vector>
 #include <string>
 
-#include "ElasticConfig.hpp"
 #include "ElasticTask.hpp"
 #include "RequestType.hpp"
 

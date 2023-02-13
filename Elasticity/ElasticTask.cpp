@@ -6,7 +6,7 @@
 #include <utility>
 #include <iostream>
 #include "simgrid/s4u.hpp"
-#include "simgrid/kernel/future.hpp"
+//#include "simgrid/kernel/future.hpp"
 #include "simgrid/plugins/load.h"
 #include <simgrid/Exception.hpp>
 
@@ -30,6 +30,12 @@ std::shared_ptr<opentracing::v3::Tracer> setUpTracer(const char* configFilePath,
 }
 #endif
 
+bool file_exist(const char *fileName)
+{
+  std::ifstream infile(fileName);
+  return infile.good();
+}
+
 ElasticTaskManager::ElasticTaskManager(std::string name,
   std::vector<std::string> incMailboxes, std::string jaegConfigFile)
   : serviceName_(name), incMailboxes_(incMailboxes), nextHost_(0),
@@ -44,6 +50,14 @@ ElasticTaskManager::ElasticTaskManager(std::string name,
 #ifdef USE_JAEGERTRACING
   tracer_ = setUpTracer(jaegConfigFile.c_str(), serviceName_.c_str());
 #endif
+
+  if (!file_exist("trace.json")) {
+    std::ofstream tracefile;
+    tracefile.open("trace.json");
+    tracefile << "{\"data\":[{\"traceID\":\"0\",\"spans\":[],\"processes\":{ \
+      \"p1\":{\"serviceName\":\"service0\",\"tags\":[]}}}]}";
+    tracefile.close();
+  }
 }
 ElasticTaskManager::ElasticTaskManager(std::string name, std::vector<std::string> incMailboxes)
   : ElasticTaskManager(name, incMailboxes, "config.yml")
@@ -243,7 +257,7 @@ void ElasticTaskManager::pollnet(std::string mboxName) {
   }
 
   while (keepGoing) {
-    int newMsgPos = simgrid::s4u::Comm::wait_any(&commV);
+    int newMsgPos = simgrid::s4u::Comm::wait_any(commV);
     TaskDescription* taskRequest = tasksV[newMsgPos];
 
     // set amount of computation for the instance
@@ -263,8 +277,8 @@ void ElasticTaskManager::pollnet(std::string mboxName) {
           tempData.find(taskRequest->id_)->second : std::vector<TaskDescription*>();
 
       v.push_back(taskRequest);
-      tempData.insert(std::pair<boost::uuids::uuid, std::vector<TaskDescription*>>(taskRequest->id_, v));
-
+      tempData[taskRequest->id_] = v;
+        
       if (v.size() == incMailboxes_.size()) {
         XBT_DEBUG("Received %d for %p, trigger now", v.size(), taskRequest);
         trigger(taskRequest);

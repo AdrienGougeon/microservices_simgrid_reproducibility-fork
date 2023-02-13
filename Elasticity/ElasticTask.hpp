@@ -7,14 +7,15 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <map>
 #include <stack>
 #include <memory>
 
-
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
+#include <boost/json.hpp>
 
 #include <xbt/string.hpp>
 #include <xbt/signal.hpp>
@@ -22,7 +23,6 @@
 #include <simgrid/s4u/Actor.hpp>
 #include <simgrid/s4u/Io.hpp>
 
-#include "ElasticConfig.hpp"
 #include "RequestType.hpp"
 
 namespace sg_microserv {
@@ -33,6 +33,59 @@ class EvntQ {
 
     explicit EvntQ(double date_) : date(date_) {}
     virtual ~EvntQ() {}
+};
+
+class Span {
+  private:
+    double start;
+    std::string operation_name;
+    boost::uuids::random_generator uuidGen_;
+    boost::uuids::uuid id;
+    boost::uuids::uuid parent_id = boost::uuids::nil_uuid();
+  public:
+    Span() {};
+    explicit Span(std::string operation_name_, double start_) : 
+      id(uuidGen_()), operation_name(operation_name_), start(start_)  {}
+    ~Span() {}
+
+    boost::uuids::uuid get_id() {
+      return id;
+    }
+
+    void set_parent_id(boost::uuids::uuid id) {
+      parent_id = id;
+    }
+
+    void end(double end) {
+      std::ifstream tracefile_in("trace.json");
+      std::stringstream buffer;
+      buffer << tracefile_in.rdbuf();
+      tracefile_in.close();
+
+      boost::json::value json_value = boost::json::parse(buffer.str());
+      boost::json::object new_span = boost::json::object();
+      new_span["traceId"] = "0";
+      new_span["spanID"] = boost::uuids::to_string(id);
+      new_span["operationName"] = operation_name;
+      new_span["references"] = boost::json::array();
+      if (!parent_id.is_nil()) {
+        boost::json::object parent = boost::json::object();
+        parent["refType"] = "CHILD_OF";
+        parent["traceID"] = "0";
+        parent["spanID"] = boost::uuids::to_string(parent_id);
+        new_span["references"].as_array().push_back(parent);          
+      } 
+      new_span["startTime"] = (int)(start * 1e6);
+      // new_span["duration"] = 100;
+      new_span["duration"] = (end-start) * 1e6;
+      new_span["processID"] = "p1";
+      json_value.at("data").at(0).at("spans").as_array().push_back(new_span);
+
+      std::ofstream tracefile_out;
+      tracefile_out.open("trace.json");
+      tracefile_out << json_value << "\n";
+      tracefile_out.close();
+    }
 };
 
 /**
@@ -70,6 +123,8 @@ class TaskDescription : public EvntQ {
     std::stack<std::string> ackStack;
     std::vector<double> flopsPerServ;
 
+    std::shared_ptr<Span> span = NULL;
+
 #ifdef USE_JAEGERTRACING
     std::vector<std::unique_ptr<opentracing::v3::Span>*> parentSpans;
 #endif
@@ -85,6 +140,17 @@ class TaskDescription : public EvntQ {
 
     explicit TaskDescription(boost::uuids::uuid id)
       : TaskDescription(id, 0.0) {}
+
+    void start_span(std::string operation_name) {
+      std::shared_ptr<Span> s(new Span(operation_name, startExec));
+      if (span != NULL)
+        s->set_parent_id(span->get_id());
+      span = s;
+    }
+
+    void end_span() {
+      span->end(endExec);
+    }
 };
 
 // namespace simgrid {
@@ -224,7 +290,6 @@ class ElasticTaskManager {
 #endif
 };
 
-
 class TaskInstance {
  private:
     bool keepGoing_;
@@ -271,7 +336,7 @@ class TaskInstance {
      * actor charged of managing CPU executions
     */
     void pollEndOfTaskExec();
-
+  
  public:
     TaskInstance(ElasticTaskManager* etm, std::string mbName,
       std::function<void(TaskDescription*)> outputFunction,
