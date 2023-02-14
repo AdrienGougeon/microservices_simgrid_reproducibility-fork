@@ -36,16 +36,75 @@ class EvntQ {
 };
 
 class Span {
+  public:
+    enum class Kind {Execution,Output};
   private:
     double start;
     std::string operation_name;
+    Span::Kind kind;
     boost::uuids::random_generator uuidGen_;
+    boost::uuids::uuid trace_id;
     boost::uuids::uuid id;
     boost::uuids::uuid parent_id = boost::uuids::nil_uuid();
+
+    static bool tracefile_exist() {
+      std::ifstream infile("trace.json");
+      return infile.good();
+    }
+
+    static void create_tracefile() {
+      std::ofstream tracefile;
+      tracefile.open("trace.json");
+      tracefile << "{\"data\":[]}";
+      tracefile.close();
+    }
+
+    static std::shared_ptr<boost::json::value> get_json() {
+      if(!tracefile_exist())
+        create_tracefile();
+      
+      std::ifstream tracefile_in("trace.json");
+      std::stringstream buffer;
+      buffer << tracefile_in.rdbuf();
+      tracefile_in.close();
+      return std::make_shared<boost::json::value>(boost::json::parse(buffer.str()));
+    }
+
+    static bool trace_exist(std::shared_ptr<boost::json::value> json, boost::uuids::uuid trace_id) {
+      bool found = false;
+      for (int i = 0; i < json->at("data").as_array().size(); i++) {
+        if (json->at("data").at(i).at("traceID").as_string() == boost::uuids::to_string(trace_id)) {
+          found = true;
+          break;
+        }
+      }
+      return found;
+    }
+
+    static void add_new_trace(std::shared_ptr<boost::json::value> json, boost::uuids::uuid trace_id) {
+      boost::json::object new_trace = boost::json::object();
+      new_trace["traceID"] = boost::uuids::to_string(trace_id);
+      new_trace["spans"] = boost::json::array();
+      new_trace["processes"] = boost::json::object();
+      new_trace["processes"].as_object()["p1"] = boost::json::object();
+      new_trace["processes"].at("p1").as_object()["serviceName"] = "Execution";
+      new_trace["processes"].as_object()["p2"] = boost::json::object();
+      new_trace["processes"].at("p2").as_object()["serviceName"] = "Output Function";
+      json->at("data").as_array().push_back(new_trace);
+    }
+
+    static void write_json(std::shared_ptr<boost::json::value> json) {
+      std::ofstream tracefile_out;
+      tracefile_out.open("trace.json");
+      tracefile_out << *json << "\n";
+      tracefile_out.close();
+    }
+
   public:
+
     Span() {};
-    explicit Span(std::string operation_name_, double start_) : 
-      id(uuidGen_()), operation_name(operation_name_), start(start_)  {}
+    explicit Span(std::string operation_name_, Kind kind_, boost::uuids::uuid trace_id_, double start_) : 
+      id(uuidGen_()), operation_name(operation_name_), kind(kind_), trace_id(trace_id_), start(start_)  {}
     ~Span() {}
 
     boost::uuids::uuid get_id() {
@@ -57,35 +116,38 @@ class Span {
     }
 
     void end(double end) {
-      std::ifstream tracefile_in("trace.json");
-      std::stringstream buffer;
-      buffer << tracefile_in.rdbuf();
-      tracefile_in.close();
-
-      boost::json::value json_value = boost::json::parse(buffer.str());
       boost::json::object new_span = boost::json::object();
-      new_span["traceId"] = "0";
+      new_span["traceId"] = boost::uuids::to_string(trace_id);
       new_span["spanID"] = boost::uuids::to_string(id);
       new_span["operationName"] = operation_name;
       new_span["references"] = boost::json::array();
       if (!parent_id.is_nil()) {
         boost::json::object parent = boost::json::object();
         parent["refType"] = "CHILD_OF";
-        parent["traceID"] = "0";
+        parent["traceID"] = boost::uuids::to_string(trace_id);
         parent["spanID"] = boost::uuids::to_string(parent_id);
         new_span["references"].as_array().push_back(parent);          
       } 
       new_span["startTime"] = (int)(start * 1e6);
-      // new_span["duration"] = 100;
-      new_span["duration"] = (end-start) * 1e6;
-      new_span["processID"] = "p1";
-      json_value.at("data").at(0).at("spans").as_array().push_back(new_span);
+      new_span["duration"] = (int)((end - start) * 1e6);
+      new_span["processID"] = kind == Kind::Execution ? "p1" : "p2";
 
-      std::ofstream tracefile_out;
-      tracefile_out.open("trace.json");
-      tracefile_out << json_value << "\n";
-      tracefile_out.close();
-    }
+      std::shared_ptr<boost::json::value> json = get_json();
+      auto it = json->at("data").as_array().begin();
+      while (it != json->at("data").as_array().end()) {
+        if (it->at("traceID").as_string() == boost::uuids::to_string(trace_id)) {
+          it->at("spans").as_array().push_back(new_span);
+          break;
+        }
+        it++;
+      }
+      if (it == json->at("data").as_array().end()) {
+        add_new_trace(json, trace_id);
+        json->at("data").at(json->at("data").as_array().size()-1).at("spans").as_array().push_back(new_span);
+      }
+
+      write_json(json);      
+   }
 };
 
 /**
@@ -141,15 +203,15 @@ class TaskDescription : public EvntQ {
     explicit TaskDescription(boost::uuids::uuid id)
       : TaskDescription(id, 0.0) {}
 
-    void start_span(std::string operation_name) {
-      std::shared_ptr<Span> s(new Span(operation_name, startExec));
+    void start_span(std::string operation_name, Span::Kind kind, double time) {
+      std::shared_ptr<Span> s(new Span(operation_name, kind, id_, time));
       if (span != NULL)
         s->set_parent_id(span->get_id());
       span = s;
     }
 
-    void end_span() {
-      span->end(endExec);
+    void end_span(double time) {
+      span->end(time);
     }
 };
 
@@ -165,7 +227,7 @@ class ElasticTaskManager {
     std::function<void(TaskDescription*)> outputFunction = [](TaskDescription*) {};
 
     /* default cpu cost in case fCPUCost_ is not defined (all request will execute this default cost) */
-    int64_t defCPUCost_;
+    double defCPUCost_;
     /* match request type to request cost */
     std::function<double(TaskDescription*)> fCPUCost;
 
@@ -230,7 +292,7 @@ class ElasticTaskManager {
      * if func not set, then the setExecAmountn value will be taken for every request
      * if func is set, the setExecAmount func will always be used
      * */
-    void setExecAmount(int64_t pr);
+    void setExecAmount(double pr);
     void setExecAmountFunc(std::function<double(TaskDescription*)> costReqType);
 
     /**

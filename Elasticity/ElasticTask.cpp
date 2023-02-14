@@ -30,12 +30,6 @@ std::shared_ptr<opentracing::v3::Tracer> setUpTracer(const char* configFilePath,
 }
 #endif
 
-bool file_exist(const char *fileName)
-{
-  std::ifstream infile(fileName);
-  return infile.good();
-}
-
 ElasticTaskManager::ElasticTaskManager(std::string name,
   std::vector<std::string> incMailboxes, std::string jaegConfigFile)
   : serviceName_(name), incMailboxes_(incMailboxes), nextHost_(0),
@@ -51,13 +45,6 @@ ElasticTaskManager::ElasticTaskManager(std::string name,
   tracer_ = setUpTracer(jaegConfigFile.c_str(), serviceName_.c_str());
 #endif
 
-  if (!file_exist("trace.json")) {
-    std::ofstream tracefile;
-    tracefile.open("trace.json");
-    tracefile << "{\"data\":[{\"traceID\":\"0\",\"spans\":[],\"processes\":{ \
-      \"p1\":{\"serviceName\":\"service0\",\"tags\":[]}}}]}";
-    tracefile.close();
-  }
 }
 ElasticTaskManager::ElasticTaskManager(std::string name, std::vector<std::string> incMailboxes)
   : ElasticTaskManager(name, incMailboxes, "config.yml")
@@ -67,9 +54,9 @@ ElasticTaskManager::ElasticTaskManager(std::string name)
   : ElasticTaskManager(name, std::vector<std::string>(1, name), "config.yml")
 {}
 
-void ElasticTaskManager::setExecAmount(int64_t pr) {
-  xbt_assert(pr >= 0, "Cannot have a negative processRatio. you asked for: %d", pr);
-  XBT_DEBUG("changed default process cost per request: %d -> %d", defCPUCost_, pr);
+void ElasticTaskManager::setExecAmount(double pr) {
+  xbt_assert(pr >= 0, "Cannot have a negative processRatio. you asked for: %lf", pr);
+  XBT_DEBUG("changed default process cost per request: %lf -> %lf", defCPUCost_, pr);
   defCPUCost_ = pr;
 }
 
