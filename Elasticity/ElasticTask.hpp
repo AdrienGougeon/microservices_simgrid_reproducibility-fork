@@ -48,13 +48,13 @@ class Span {
     boost::uuids::uuid parent_id = boost::uuids::nil_uuid();
 
     static bool tracefile_exist() {
-      std::ifstream infile("trace.json");
+      std::ifstream infile("traces.json");
       return infile.good();
     }
 
     static void create_tracefile() {
       std::ofstream tracefile;
-      tracefile.open("trace.json");
+      tracefile.open("traces.json");
       tracefile << "{\"data\":[]}";
       tracefile.close();
     }
@@ -63,7 +63,7 @@ class Span {
       if(!tracefile_exist())
         create_tracefile();
       
-      std::ifstream tracefile_in("trace.json");
+      std::ifstream tracefile_in("traces.json");
       std::stringstream buffer;
       buffer << tracefile_in.rdbuf();
       tracefile_in.close();
@@ -95,7 +95,7 @@ class Span {
 
     static void write_json(std::shared_ptr<boost::json::value> json) {
       std::ofstream tracefile_out;
-      tracefile_out.open("trace.json");
+      tracefile_out.open("traces.json");
       tracefile_out << *json << "\n";
       tracefile_out.close();
     }
