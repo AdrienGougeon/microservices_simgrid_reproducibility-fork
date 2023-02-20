@@ -121,13 +121,13 @@ class Span {
       new_span["spanID"] = boost::uuids::to_string(id);
       new_span["operationName"] = operation_name;
       new_span["references"] = boost::json::array();
-      if (!parent_id.is_nil()) {
-        boost::json::object parent = boost::json::object();
-        parent["refType"] = "CHILD_OF";
-        parent["traceID"] = boost::uuids::to_string(trace_id);
-        parent["spanID"] = boost::uuids::to_string(parent_id);
-        new_span["references"].as_array().push_back(parent);          
-      } 
+      // if (!parent_id.is_nil()) {
+      //   boost::json::object parent = boost::json::object();
+      //   parent["refType"] = "CHILD_OF";
+      //   parent["traceID"] = boost::uuids::to_string(trace_id);
+      //   parent["spanID"] = boost::uuids::to_string(parent_id);
+      //   new_span["references"].as_array().push_back(parent);          
+      // } 
       new_span["startTime"] = (int)(start * 1e6);
       new_span["duration"] = (int)((end - start) * 1e6);
       new_span["processID"] = kind == Kind::Execution ? "p1" : "p2";
