@@ -256,6 +256,10 @@ void ElasticTaskManager::pollnet(std::string mboxName) {
     XBT_DEBUG("Received %p index: %d", taskRequest, newMsgPos);
 
     if (incMailboxes_.size() == 1) {
+      if (taskRequest->span == NULL)
+        taskRequest->parents_span_id = {};
+      else 
+        taskRequest->parents_span_id = {taskRequest->span->get_id()};
       trigger(taskRequest);
       sleep_sem->release();
     } else {
@@ -268,6 +272,9 @@ void ElasticTaskManager::pollnet(std::string mboxName) {
         
       if (v.size() == incMailboxes_.size()) {
         XBT_DEBUG("Received %d for %p, trigger now", v.size(), taskRequest);
+        taskRequest->parents_span_id = {};
+        for (auto task_description: v)
+          taskRequest->parents_span_id.push_back(task_description->span->get_id());
         trigger(taskRequest);
         // remove data
         tempData.erase(taskRequest->id_);

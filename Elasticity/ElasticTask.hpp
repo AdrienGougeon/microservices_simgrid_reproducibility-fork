@@ -45,7 +45,8 @@ class Span {
     boost::uuids::random_generator uuidGen_;
     boost::uuids::uuid trace_id;
     boost::uuids::uuid id;
-    boost::uuids::uuid parent_id = boost::uuids::nil_uuid();
+    std::vector<boost::uuids::uuid> parents_id;
+    std::string host_name = "undefined";
 
     static bool tracefile_exist() {
       std::ifstream infile("traces.json");
@@ -111,8 +112,12 @@ class Span {
       return id;
     }
 
-    void set_parent_id(boost::uuids::uuid id) {
-      parent_id = id;
+    void set_parents(std::vector<boost::uuids::uuid> parents_id) {
+      this->parents_id = parents_id;
+    }
+
+    void set_host_name(std::string host_name) {
+      this->host_name = host_name;
     }
 
     void end(double end) {
@@ -120,16 +125,26 @@ class Span {
       new_span["traceId"] = boost::uuids::to_string(trace_id);
       new_span["spanID"] = boost::uuids::to_string(id);
       new_span["operationName"] = operation_name;
+
       new_span["references"] = boost::json::array();
-      // if (!parent_id.is_nil()) {
-      //   boost::json::object parent = boost::json::object();
-      //   parent["refType"] = "CHILD_OF";
-      //   parent["traceID"] = boost::uuids::to_string(trace_id);
-      //   parent["spanID"] = boost::uuids::to_string(parent_id);
-      //   new_span["references"].as_array().push_back(parent);          
-      // } 
+      for (auto id: parents_id) {
+        boost::json::object parent_ref = boost::json::object();
+        parent_ref["refType"] = "CHILD_OF";
+        parent_ref["traceID"] = boost::uuids::to_string(trace_id);
+        parent_ref["spanID"] = boost::uuids::to_string(id);
+        new_span["references"].as_array().push_back(parent_ref);          
+      }     
+
       new_span["startTime"] = (int)(start * 1e6);
       new_span["duration"] = (int)((end - start) * 1e6);
+
+      new_span["tags"] = boost::json::array();
+      boost::json::object host_tag = boost::json::object();
+      host_tag["key"] = "Host name";
+      host_tag["type"] = "string";
+      host_tag["value"] = host_name;
+      new_span["tags"].as_array().push_back(host_tag); 
+
       new_span["processID"] = kind == Kind::Execution ? "p1" : "p2";
 
       std::shared_ptr<boost::json::value> json = get_json();
@@ -185,6 +200,7 @@ class TaskDescription : public EvntQ {
     std::stack<std::string> ackStack;
     std::vector<double> flopsPerServ;
 
+    std::vector<boost::uuids::uuid> parents_span_id;
     std::shared_ptr<Span> span = NULL;
 
 #ifdef USE_JAEGERTRACING
@@ -203,11 +219,14 @@ class TaskDescription : public EvntQ {
     explicit TaskDescription(boost::uuids::uuid id)
       : TaskDescription(id, 0.0) {}
 
-    void start_span(std::string operation_name, Span::Kind kind, double time) {
+    std::shared_ptr<Span> start_span(std::string operation_name, Span::Kind kind, double time) {
       std::shared_ptr<Span> s(new Span(operation_name, kind, id_, time));
-      if (span != NULL)
-        s->set_parent_id(span->get_id());
+      if (kind == Span::Kind::Execution)
+        s->set_parents(parents_span_id);
+      else if (kind == Span::Kind::Output and span != NULL)
+        s->set_parents({span->get_id()});
       span = s;
+      return span;
     }
 
     void end_span(double time) {

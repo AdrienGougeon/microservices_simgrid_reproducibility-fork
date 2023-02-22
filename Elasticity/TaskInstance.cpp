@@ -114,7 +114,8 @@ void TaskInstance::pollEndOfTaskExec() {
     // simgrid::s4u::ActorPtr out = simgrid::s4u::Actor::create(
     //   mbName_+"outputf"+boost::uuids::to_string(uuidGen_()), simgrid::s4u::Host::current(), [&]{outputFunction_(td);});
 
-    td->start_span(etm_->getServiceName(), Span::Kind::Output, td->endExec);
+    std::shared_ptr<Span> span = td->start_span(etm_->getServiceName(), Span::Kind::Output, td->endExec);
+    span->set_host_name(simgrid::s4u::this_actor::get_host()->get_name());
     outputFunction_(td);
     td->end_span(simgrid::s4u::Engine::get_clock());
     delete td;
@@ -166,7 +167,9 @@ void TaskInstance::run() {
         td->parentSpans.push_back(t);
 #endif
 
-        td->start_span(etm_->getServiceName(), Span::Kind::Execution, td->startExec);
+        std::shared_ptr<Span> span = td->start_span(etm_->getServiceName(), Span::Kind::Execution, td->startExec);
+        span->set_host_name(simgrid::s4u::this_actor::get_host()->get_name());
+
 
         etm_->modifWaitingReqAmount(-1);
         etm_->modifExecutingReqAmount(1);
