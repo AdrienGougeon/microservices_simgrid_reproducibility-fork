@@ -1,4 +1,3 @@
-set(Boost_USE_STATIC_LIBS        ON)
 find_package(Boost REQUIRED COMPONENTS json)
 
 add_library(Elasticity ElasticTask.cpp DataSource.cpp ElasticPolicyCPUThreshold.cpp ElasticPolicyHybrid1.cpp ElasticPolicyReactive1.cpp TaskInstance.cpp)
